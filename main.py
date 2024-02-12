@@ -40,142 +40,150 @@ class Birthday(Field):
             return False
 
 class Record:
-    def __init__(self, name, birthday=None):
+    def __init__(self, name, phone, birthday=None):
         self.name = Name(name)
-        self.phones = []
+        self.phone = Phone(phone)
         self.birthday = Birthday(birthday) if birthday else None
 
-    def add_phone(self, phone):
-        new_phone = Phone(phone)
-        if new_phone not in self.phones:
-            self.phones.append(new_phone)
-        else:
-            raise ValueError("Phone number already exists")
-
-    def remove_phone(self, phone):
-        phone_obj_searched = Phone(phone)
-        for phone_obj in self.phones:
-            if phone_obj.value == phone_obj_searched.value:
-                self.phones.remove(phone_obj)
-        return None
-
-    def find_phone(self, phone):
-        phone_obj_searched = Phone(phone)
-        for phone_obj in self.phones:
-            if phone_obj.value == phone_obj_searched.value:
-                return phone_obj
-        return None
+    def __str__(self):
+        return f"{self.name}: {self.phone}"
 
     def days_to_birthday(self):
-        if not self.birthday:
+        if self.birthday:
+            today = datetime.now().date()
+            next_birthday = datetime.strptime(str(today.year) + self.birthday.value[4:], '%Y-%m-%d').date()
+            if next_birthday < today:
+                next_birthday = datetime.strptime(str(today.year + 1) + self.birthday.value[4:], '%Y-%m-%d').date()
+            return (next_birthday - today).days
+        else:
             return None
-        today = datetime.now().date()
-        next_birthday = datetime(today.year, datetime.strptime(self.birthday.value, '%Y-%m-%d').month, datetime.strptime(self.birthday.value, '%Y-%m-%d').day).date()
-        if today > next_birthday:
-            next_birthday = datetime(today.year + 1, datetime.strptime(self.birthday.value, '%Y-%m-%d').month, datetime.strptime(self.birthday.value, '%Y-%m-%d').day).date()
-        return (next_birthday - today).days
-
-    def __str__(self):
-        phones_str = '; '.join(str(phone) for phone in self.phones)
-        return f"Contact name: {self.name.value}, phones: {phones_str}, birthday: {self.birthday.value if self.birthday else 'Not specified'}"
-    
-    def edit_phone(self, old_phone, new_phone):
-        old_phone_obj = Phone(old_phone)
-        new_phone_obj = Phone(new_phone)
-        found = False
-        for phone_obj in self.phones:
-            if phone_obj.value == old_phone_obj.value:
-                phone_obj.value = new_phone_obj.value
-                found = True
-                break
-        if not found:
-            raise ValueError("Phone number not found")
 
 class AddressBook(UserDict):
-    def __init__(self):
-        super().__init__()
-
     def add_record(self, record):
         self.data[record.name.value] = record
 
-    def find(self, name):
-        name_field = Name(name)
-        return self.data.get(name_field.value)
+    def delete_record(self, name):
+        del self.data[name]
 
-    def delete(self, name):
-        name_field = Name(name)
-        if name_field.value in self.data:
-            del self.data[name_field.value]
-        else:
-            return None
+    def find_record(self, name):
+        return self.data.get(name)
 
-    def iterator(self, batch_size=10):
-        all_records = list(self.data.values())
-        num_batches = len(all_records) // batch_size + (1 if len(all_records) % batch_size != 0 else 0)
-        for i in range(num_batches):
-            yield all_records[i*batch_size : (i+1)*batch_size]
-    
     def save(self, filename):
         with open(filename, 'wb') as f:
             pickle.dump(self.data, f)
 
     def load(self, filename):
-        with open(filename, 'rb') as f:
-            self.data = pickle.load(f)
+        try:
+            with open(filename, 'rb') as f:
+                self.data = pickle.load(f)
+        except FileNotFoundError:
+            self.data = {}
 
-    def search(self, query):
-        results = []
-        for record in self.data.values():
-            if query.lower() in record.name.value.lower():
-                results.append(record)
-            else:
-                for phone in record.phones:
-                    if query in phone.value:
-                        results.append(record)
-                        break
-        return results
-    
     def __enter__(self):
-        self.load('address_book.pkl')
+        self.load("address_book.pkl")
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.save('address_book.pkl')
+        self.save("address_book.pkl")
+
+    def __iter__(self):
+        for key in self.data:
+            yield self.data[key]
+
+def search_contacts(query):
+    search_results = []
+    with AddressBook() as book:
+        for record in book.data.values():
+            if query.lower() in record.name.value.lower():
+                search_results.append(record)
+            elif query in record.phone.value:
+                search_results.append(record)
+    return search_results
+
+
+    
+def input_error(func):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except (ValueError, IndexError):
+            return "Invalid command. Please try again."
+    return wrapper
+
+def main():
+    with AddressBook() as book:
+        print("How can I help you?")
+        while True:
+            user_input = input("Enter your command: ").lower().strip()
+            if user_input.startswith("add "):
+                try:
+                    components = user_input.split(maxsplit=3)
+                    if len(components) < 3:
+                        print("Invalid command. Please provide name and phone.")
+                        continue  # Продовжуємо зчитувати наступну команду
+                    name = components[1]
+                    phone = components[2]
+                    birthday = components[3] if len(components) > 3 else None
+                    
+                    if name in book.data:
+                        print(f"Contact {name} already exists. Use 'change' command to update it.")
+                    else:
+                        record = Record(name, phone, birthday)
+                        book.add_record(record)
+                        print(f"Contact {name} added with phone number {phone} and birthday {birthday}")
+                except ValueError:
+                    print("Invalid command. Please provide name, phone, and optionally birthday.")
+
+            elif user_input.startswith("change "):  
+                try:
+                    args = user_input.split(maxsplit=1)[1].split()  # Розділити аргументи команди
+                    name, phone = args[:2]  # Перші два аргументи: ім'я та номер телефону
+                    birthday = args[2] if len(args) > 2 else None  # Третій аргумент (якщо є): день народження
+                    record = Record(name, phone, birthday)
+                    book.add_record(record)
+                    print(f"Contact {name} added with phone number {phone}")
+                except ValueError:
+                    print("Invalid command. Please provide name and phone.")
+
+            
+            elif user_input.startswith("phone"):
+                try:
+                    _, name = user_input.split(maxsplit=1)
+                    record = book.find_record(name)
+                    if record:
+                        print(f"The phone number for {name} is {record.phone}")
+                    else:
+                        print(f"No contact with the name {name} found.")
+                except ValueError:
+                    print("Invalid command. Please provide name.")
+                    
+            elif user_input.startswith("show all"):
+                if book.data:
+                    for record in book.data.values():
+                        print(record)
+                        if record.birthday:
+                            print(f"Birthday: {record.birthday}")
+                            days_left = record.days_to_birthday()
+                            if days_left is not None:
+                                print(f"Days left until birthday: {days_left}")
+                else:
+                    print("No contacts available")
+                    
+            elif user_input.startswith("search "):
+                query = user_input.split(maxsplit=1)[-1].strip()
+                search_results = search_contacts(query)
+                if search_results:
+                    print("Search results:")
+                    for result in search_results:
+                        print(result)
+                else:
+                    print("No matching contacts found.")
+                  
+            elif user_input.startswith(("good bye", "close", "exit")):
+                print("Good bye!")
+                break
+            else:
+                print("Invalid command. Please try again.")
 
 if __name__ == "__main__":
-    book = AddressBook()
-        
-    john_record = Record("John", "1990-05-20")
-    john_record.add_phone("1234567890")
-    john_record.add_phone("5555555555")
-    book.add_record(john_record)
-
-    jane_record = Record("Jane")
-    jane_record.add_phone("9876543210")
-    book.add_record(jane_record)
-
-    # Зберігаємо дані у файл 'address_book.pkl'
-    book.save('address_book.pkl')
-
-    # Далі можна використовувати з контекстом або окремо
-    with AddressBook() as book:
-        for batch in book.iterator(batch_size=1):
-            for record in batch:
-                print(record)
-
-        john = book.find("John")
-        print(john.days_to_birthday())
-
-        found_phone = john.find_phone("5555555555")
-        print(f"{found_phone}")
-
-        book.delete("Jane")
-
-        # Пошук за іменем або номером телефону
-        search_results = book.search("John")  # Пошук за ім'ям
-        for result in search_results:
-            print(result)
-        
-        search_results = book.search("555")  # Пошук за номером телефону
-        for result in search_results:
-            print(result)
+    main()
