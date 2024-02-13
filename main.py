@@ -94,11 +94,11 @@ def search_contacts(query):
     search_results = []
     with AddressBook() as book:
         for record in book.data.values():
-            if query.lower() in record.name.value.lower():
-                search_results.append(record)
-            elif query in record.phone.value:
+            if query.lower() in record.name.value.lower() or query in record.phone.value:
                 search_results.append(record)
     return search_results
+
+
 
 
     
